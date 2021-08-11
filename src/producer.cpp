@@ -12,6 +12,10 @@ void Producer::produce()
 			if (_stoping) {
 				return;
 			}
+			if (false == _connected) {
+				connect();
+				_connected = true;
+			}
 			send_message();
 		}
 		catch (...) {
@@ -39,9 +43,53 @@ void Producer::Stop()
 	std::cout << "producer stopped\n";
 }
 
+Producer::~Producer()
+{
+	Stop();
+}
+
+void Producer::connect()
+{
+	std::string errstr;
+	_callback = std::make_unique<DeliveryReportCallback>();
+	std::unique_ptr<RdKafka::Conf> config(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+	_config = std::move(config);
+	if (_config->set("bootstrap.servers", _brokers, errstr) != RdKafka::Conf::CONF_OK) {
+		throw std::runtime_error(errstr);
+	}
+	if (_config->set("dr_cb", _callback.get(), errstr) != RdKafka::Conf::CONF_OK) {
+		throw std::runtime_error(errstr);
+	}
+	std::unique_ptr<RdKafka::Producer> ptr(RdKafka::Producer::create(_config.get(), errstr));
+	_producer = std::move(ptr);
+	if (!_producer) {
+		throw std::runtime_error(errstr);
+	}
+	std::cout << "connection to kafka established\n";
+}
+
 void Producer::send_message()
 {
-	std::cout << "producer sends message\n";
+	_producer->poll(0);
+	++_counter;
+	std::string message = "message #" + std::to_string(_counter);
+	while (true)
+	{
+		RdKafka::ErrorCode er_code = _producer->produce(_topic, RdKafka::Topic::PARTITION_UA, RdKafka::Producer::RK_MSG_COPY,
+			const_cast<char *>(message.c_str()), message.length(), NULL, 0, NULL, NULL);
+		if (er_code == RdKafka::ERR_NO_ERROR) {
+			std::cout << "message '" << message << "' send\n";
+			return;
+		}
+		if (er_code == RdKafka::ERR__QUEUE_FULL) {
+			std::cout << "internal queue is full, waiting before next attempt...\n";
+			_producer->poll(1 * 1000);
+			continue;
+		}
+		std::cerr << "failed to send message: " << er_code << "\n";
+		_producer->poll(0);
+		return;
+	}
 }
 
 void Producer::handle_exception(std::exception_ptr eptr)
@@ -57,7 +105,7 @@ void Producer::handle_exception(std::exception_ptr eptr)
 }
 
 Producer::Producer(const std::string& brokers, const std::string& topic, const int64_t& interval_millisecond):
-	_brokers(brokers), _topic(topic), _interval(interval_millisecond), _running(false), _stoping(false)
+	_brokers(brokers), _topic(topic), _interval(interval_millisecond), _running(false), _stoping(false), _connected(false), _counter(0)
 
 {
 }

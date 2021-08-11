@@ -10,9 +10,14 @@
 #include <mutex>
 
 #include "producer.h"
+#include "consumer.h"
+
+inline const std::string Group_title = "default_group";
 
 std::mutex Mutex;
 std::condition_variable CV;
+
+
 
 BOOL WINAPI CtrlHandler(DWORD dwCtrlType)
 {
@@ -57,12 +62,24 @@ int main(int argc, char** argv)
     std::string topic = argv[2];
 
     std::unique_ptr<Producer> producer = std::make_unique<Producer>(brokers, topic, 3000);
+    std::unique_ptr<Consumer> consumer_1 = std::make_unique<Consumer>(brokers, topic, Group_title, "consumer_1");
+    std::unique_ptr<Consumer> consumer_2 = std::make_unique<Consumer>(brokers, topic, Group_title, "consumer_2");
+    std::unique_ptr<Consumer> consumer_3 = std::make_unique<Consumer>(brokers, topic, Group_title, "consumer_3");
+    std::unique_ptr<Consumer> consumer_4 = std::make_unique<Consumer>(brokers, topic, Group_title, "consumer_4");
 
     producer->Start();
+    consumer_1->Start();
+    consumer_2->Start();
+    consumer_3->Start();
+    consumer_4->Start();
 
     wait_for_ctrl_c();
 
     producer->Stop();
+    consumer_1->Stop();
+    consumer_2->Stop();
+    consumer_3->Stop();
+    consumer_4->Stop();
 
     CV.notify_one();
 
